@@ -1,7 +1,8 @@
-const MAX_EDGE = 2048;
+// Gemini bills images in 768px tiles (~258 tokens each); 1536px keeps print legible at ~4 tiles.
+const MAX_EDGE = 1536;
 
 /** Grab one full-resolution frame from a live video track as a JPEG data URL. */
-export async function captureTrack(track: MediaStreamTrack, quality = 0.9): Promise<string> {
+export async function captureTrack(track: MediaStreamTrack, quality = 0.85): Promise<string> {
   const video = document.createElement("video");
   video.muted = true;
   video.playsInline = true;

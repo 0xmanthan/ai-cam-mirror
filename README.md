@@ -28,6 +28,11 @@ question on screen — no typing, no question repetition, no explanation unless 
   code → code only, descriptive → shortest complete answer. An optional note (e.g. "explain briefly") overrides
   the format.
 
+- **Gemini free tier.** With no model set, the server lists the models the key can use and picks the newest
+  Flash, then Flash-Lite (free-tier quotas are per model, so Lite is extra headroom). Retired models and 429s
+  fall through automatically. Snapshots are capped at 1536px (~4 image tiles, about 1k tokens). Thinking is
+  configurable (Fast / Balanced / Deep) and output is capped, so each answer costs about 1–2k tokens.
+
 Shortcut: press **A** on desktop to ask about the stage feed.
 
 ## Deploy (free)

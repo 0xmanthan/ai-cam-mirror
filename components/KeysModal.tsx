@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { KeyConfig, ProviderId } from "@/lib/types";
-import { getKeys, setKeys } from "@/lib/client/storage";
+import type { Effort, KeyConfig, ProviderId } from "@/lib/types";
+import { getEffort, getKeys, setEffort, setKeys } from "@/lib/client/storage";
 import { ArrowDownIcon, ArrowUpIcon, CloseIcon } from "./Icons";
 
 const PROVIDERS: { id: KeyConfig["provider"]; label: string }[] = [
@@ -14,7 +14,7 @@ const PROVIDERS: { id: KeyConfig["provider"]; label: string }[] = [
 ];
 
 const MODEL_HINTS: Record<ProviderId, string[]> = {
-  gemini: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-3-pro-preview"],
+  gemini: ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-pro-latest", "gemini-3.8-flash"],
   openrouter: ["google/gemini-2.5-flash", "google/gemini-2.5-pro", "openai/gpt-4.1-mini", "anthropic/claude-sonnet-5-5"],
   openai: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o"],
   anthropic: ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
@@ -28,12 +28,20 @@ function guess(key: string): ProviderId {
   return "gemini";
 }
 
+const EFFORTS: { id: Effort; label: string; hint: string }[] = [
+  { id: "fast", label: "Fast", hint: "No thinking. Fewest tokens, best for simple MCQs." },
+  { id: "balanced", label: "Balanced", hint: "Brief thinking (≤1k tokens). Good default on the free tier." },
+  { id: "deep", label: "Deep", hint: "Thinks as long as it needs. Best for maths and code, but uses more quota." },
+];
+
 const blank = (): KeyConfig => ({ id: Math.random().toString(36).slice(2), provider: "auto", apiKey: "", model: "", enabled: true });
 
 export function KeysModal({ onClose }: { onClose: () => void }) {
   const [keys, setLocal] = useState<KeyConfig[]>([]);
+  const [effort, setEffortState] = useState<Effort>("balanced");
 
   useEffect(() => {
+    setEffortState(getEffort());
     const k = getKeys();
     setLocal(k.length ? k : [blank()]);
   }, []);
@@ -58,6 +66,7 @@ export function KeysModal({ onClose }: { onClose: () => void }) {
   }
   function save() {
     setKeys(keys.filter((k) => k.apiKey.trim()));
+    setEffort(effort);
     onClose();
   }
 
@@ -75,6 +84,25 @@ export function KeysModal({ onClose }: { onClose: () => void }) {
           <button className="btn btn-ghost btn-sm btn-icon" onClick={onClose} aria-label="Close">
             <CloseIcon />
           </button>
+        </div>
+
+        <div style={{ marginTop: 20 }}>
+          <span className="label">Thinking</span>
+          <div className="seg" role="radiogroup" aria-label="Thinking">
+            {EFFORTS.map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                role="radio"
+                aria-checked={effort === e.id}
+                className={effort === e.id ? "active" : ""}
+                onClick={() => setEffortState(e.id)}
+              >
+                {e.label}
+              </button>
+            ))}
+          </div>
+          <p className="hint">{EFFORTS.find((e) => e.id === effort)?.hint}</p>
         </div>
 
         {keys.map((k, i) => {
@@ -108,7 +136,7 @@ export function KeysModal({ onClose }: { onClose: () => void }) {
                 <input
                   className="field"
                   list={`models-${k.id}`}
-                  placeholder={`Model (default ${MODEL_HINTS[provider][0]})`}
+                  placeholder={provider === "gemini" ? "Model (empty = newest Flash)" : `Model (default ${MODEL_HINTS[provider][0]})`}
                   value={k.model ?? ""}
                   onChange={(e) => update(k.id, { model: e.target.value })}
                 />
@@ -159,6 +187,11 @@ export function KeysModal({ onClose }: { onClose: () => void }) {
         </div>
 
         <div className="notice">
+          <b>On Gemini&rsquo;s free tier?</b> Leave the model empty. Mirror checks which models your key can use, picks the
+          newest Flash, and switches to Flash-Lite (which has its own quota) when Flash is rate limited. Keys from different Google projects each have their own
+          quota too, so adding a second key roughly doubles how many answers you get.
+          <br />
+          <br />
           Keys are saved only in this browser. Each time you ask, the key is sent with the image to this app&rsquo;s
           serverless function, which forwards it to the provider. Nothing is stored on the server. You can get a free
           Gemini key at{" "}

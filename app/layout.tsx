@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { EB_Garamond, Figtree } from "next/font/google";
 import "./globals.css";
+import "./landing.css";
 
 const garamond = EB_Garamond({ subsets: ["latin"], style: ["normal", "italic"], variable: "--font-garamond" });
 const figtree = Figtree({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-figtree" });
@@ -13,7 +14,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f3f8f9",
+  viewportFit: "cover",
+  themeColor: "#fafaf6",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

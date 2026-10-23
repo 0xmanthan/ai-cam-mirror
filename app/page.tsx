@@ -1,123 +1,227 @@
-"use client";
+import { Launcher } from "@/components/landing/Launcher";
+import { HeroVisual, PeopleVisual, RouterVisual, SharpVisual, TypesVisual } from "@/components/landing/Visuals";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { getName, requestJoin, setName, stashJoin } from "@/lib/client/storage";
+const USES = [
+  "Multiple choice",
+  "Select all that apply",
+  "Numericals",
+  "True or false",
+  "Fill in the blanks",
+  "Match the following",
+  "Code",
+  "Short answers",
+  "Diagrams",
+  "Whiteboards",
+];
+
+const FAQ = [
+  {
+    q: "Is it really free?",
+    a: "Yes. The app runs on Vercel's free tier and video goes through LiveKit's free plan. AI uses your own key, and Gemini keys from Google AI Studio are free.",
+  },
+  {
+    q: "Do I need to install anything?",
+    a: "No. Open the link in any modern phone or laptop browser, allow the camera, and you're live.",
+  },
+  {
+    q: "Where does my API key go?",
+    a: "It's saved only in your browser. When you tap Ask AI, it's sent with the image to a serverless function that forwards it to the provider. Nothing is stored.",
+  },
+  {
+    q: "Can I get an explanation instead?",
+    a: "Yes. Type a note like “explain in two lines” before you tap and the AI follows it. Leave it empty and you get only the answer.",
+  },
+  {
+    q: "Who controls the room?",
+    a: "Whoever creates it. The creator chooses the host, and there's only ever one. The host and the creator can remove people.",
+  },
+];
 
 export default function Home() {
-  const router = useRouter();
-  const [name, setNameState] = useState("");
-  const [code, setCode] = useState("");
-  const [busy, setBusy] = useState<"create" | "join" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => setNameState(getName()), []);
-
-  async function go(mode: "create" | "join") {
-    setError(null);
-    const n = name.trim();
-    if (!n) return setError("Tell the room what to call you.");
-    if (mode === "join" && code.trim().length < 4) return setError("Enter the room code you were given.");
-    setName(n);
-    setBusy(mode);
-    try {
-      const info = await requestJoin(mode === "create" ? { name: n, create: true } : { name: n, room: code.trim() });
-      stashJoin(info);
-      router.push(`/room/${info.room}`);
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(null);
-    }
-  }
-
   return (
-    <main className="home">
-      <nav className="nav">
-        <span className="wordmark">
+    <main className="landing">
+      <header className="l-nav">
+        <a className="wordmark" href="/">
+          <span className="wordmark-dot" />
+          Mirror
+        </a>
+        <nav className="l-links">
+          <a href="#how">How it works</a>
+          <a href="#answers">Answers</a>
+          <a href="#faq">FAQ</a>
+        </nav>
+        <a className="btn btn-dark btn-sm" href="#start">
+          Start free
+        </a>
+      </header>
+
+      <section className="l-hero" id="start">
+        <span className="l-pill">
+          <span className="l-pill-dot" /> Free · No sign-up · Works on any phone
+        </span>
+        <h1>
+          Point a camera.
+          <br />
+          <em>Get the answer.</em>
+        </h1>
+        <p className="l-lede">
+          One phone goes live. Everyone in the room can tap <b>Ask AI</b> and get back only the answer to what&rsquo;s
+          on screen. No typing, no fluff.
+        </p>
+        <Launcher id="hero" />
+        <HeroVisual />
+      </section>
+
+      <div className="marquee" aria-hidden>
+        <div className="marquee-track">
+          {[...USES, ...USES].map((u, i) => (
+            <span key={i}>
+              {u}
+              <i>✦</i>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <section className="l-section" id="how">
+        <div className="l-head">
+          <span className="eyebrow">How it works</span>
+          <h2>
+            Three taps from <em>question</em> to answer.
+          </h2>
+        </div>
+        <div className="steps3">
+          <article className="step-card">
+            <div className="step-art">
+              <div className="code-art">
+                <span className="eyebrow">Room code</span>
+                <span className="code-art-code">K7QM2P</span>
+                <span className="code-art-link">Copy invite link</span>
+              </div>
+            </div>
+            <span className="step-num">01</span>
+            <h3>Open a room</h3>
+            <p>Create a room and share the link. Anyone with it can join from their phone or laptop.</p>
+          </article>
+          <article className="step-card">
+            <div className="step-art">
+              <div className="live-art">
+                <span className="live-pill">
+                  <span className="live-dot" /> Live
+                </span>
+                <div className="live-art-frame" />
+                <span className="phone-btn on">Camera on</span>
+              </div>
+            </div>
+            <span className="step-num">02</span>
+            <h3>Go live</h3>
+            <p>Turn on the camera, back or front, or share a laptop screen. Everyone in the room sees it in real time.</p>
+          </article>
+          <article className="step-card">
+            <div className="step-art">
+              <div className="answer-art">
+                <span className="btn btn-primary btn-sm">Ask AI</span>
+                <div className="mini-answer">
+                  <span className="mini-eyebrow">Latest</span>
+                  <span className="mini-answer-text">B) Mitochondria</span>
+                </div>
+              </div>
+            </div>
+            <span className="step-num">03</span>
+            <h3>Tap Ask AI</h3>
+            <p>Mirror grabs a sharp frame and the AI sends back the answer and nothing else.</p>
+          </article>
+        </div>
+      </section>
+
+      <section className="l-section split" id="answers">
+        <div className="split-text">
+          <span className="eyebrow">Only the answer</span>
+          <h2>
+            It answers. <em>It doesn&rsquo;t lecture.</em>
+          </h2>
+          <p>
+            The prompt is built for each kind of question: the letter for MCQs, every correct option for
+            multi-select, the value and unit for numericals, just the code for code. The question is never repeated
+            and nothing is explained unless you ask.
+          </p>
+        </div>
+        <TypesVisual />
+      </section>
+
+      <section className="l-section split reverse">
+        <div className="split-text">
+          <span className="eyebrow">Sharp, not blurry</span>
+          <h2>
+            The AI reads a <em>photo</em>, not a video frame.
+          </h2>
+          <p>
+            Live video gets compressed. So when you tap Ask AI, Mirror asks the broadcaster&rsquo;s phone for a
+            full-resolution still and sends that instead. Small print stays readable.
+          </p>
+        </div>
+        <SharpVisual />
+      </section>
+
+      <section className="l-section split">
+        <div className="split-text">
+          <span className="eyebrow">Bring any key</span>
+          <h2>
+            One key fails. <em>The next one answers.</em>
+          </h2>
+          <p>
+            Add Gemini, OpenRouter, OpenAI or Anthropic keys and put them in order. If one hits a rate limit, Mirror
+            moves on to the next automatically. Your keys never leave your browser except to make the request.
+          </p>
+        </div>
+        <RouterVisual />
+      </section>
+
+      <section className="l-section split reverse">
+        <div className="split-text">
+          <span className="eyebrow">One host, your call</span>
+          <h2>
+            The creator <em>picks the host.</em>
+          </h2>
+          <p>
+            There&rsquo;s exactly one host at a time, and only the person who made the room can hand that role over.
+            The host and the creator can remove anyone who shouldn&rsquo;t be there.
+          </p>
+        </div>
+        <PeopleVisual />
+      </section>
+
+      <section className="l-section" id="faq">
+        <div className="l-head">
+          <span className="eyebrow">Questions</span>
+          <h2>Good to know</h2>
+        </div>
+        <div className="faq">
+          {FAQ.map((f) => (
+            <details key={f.q}>
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
+      <section className="l-cta">
+        <h2>
+          Your next question,
+          <br />
+          <em>answered in a tap.</em>
+        </h2>
+        <Launcher id="cta" />
+      </section>
+
+      <footer className="l-foot">
+        <span className="wordmark" style={{ fontSize: 20 }}>
           <span className="wordmark-dot" />
           Mirror
         </span>
-        <span className="faint" style={{ fontSize: 14 }}>
-          Live camera rooms with a one-tap answer
-        </span>
-      </nav>
-
-      <section className="hero">
-        <div>
-          <h1>
-            Point a camera.
-            <br />
-            <em>Get the answer.</em>
-          </h1>
-          <p className="lede">
-            One person shares their phone camera or screen. Everyone else in the room can ask AI what&rsquo;s on it,
-            with one tap and no typing. You get back only the answer.
-          </p>
-        </div>
-
-        <div className="card join-card">
-          <h2>Start or join a room</h2>
-          <label className="label" htmlFor="name">
-            Your name
-          </label>
-          <input
-            id="name"
-            className="field"
-            placeholder="e.g. Aarav"
-            value={name}
-            maxLength={40}
-            autoComplete="nickname"
-            onChange={(e) => setNameState(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && go(code ? "join" : "create")}
-          />
-          <button
-            className="btn btn-primary btn-lg"
-            style={{ width: "100%", marginTop: 14 }}
-            disabled={!!busy}
-            onClick={() => go("create")}
-          >
-            {busy === "create" ? "Creating room…" : "Create a room"}
-          </button>
-
-          <div className="divider">or join with a code</div>
-
-          <div className="row">
-            <input
-              className="field code-input"
-              placeholder="K7QM2P"
-              value={code}
-              maxLength={12}
-              autoCapitalize="characters"
-              onChange={(e) => setCode(e.target.value.replace(/[^a-z0-9]/gi, "").toUpperCase())}
-              onKeyDown={(e) => e.key === "Enter" && go("join")}
-            />
-            <button className="btn btn-dark" style={{ height: 48 }} disabled={!!busy} onClick={() => go("join")}>
-              {busy === "join" ? "Joining…" : "Join"}
-            </button>
-          </div>
-          {error && <p className="err">{error}</p>}
-        </div>
-      </section>
-
-      <section className="steps">
-        <div className="steps-inner">
-          <div className="step">
-            <div className="step-n">i.</div>
-            <h3>Open a room</h3>
-            <p>Whoever creates the room picks the host and can hand that role to anyone else.</p>
-          </div>
-          <div className="step">
-            <div className="step-n">ii.</div>
-            <h3>Go live</h3>
-            <p>Turn on a phone or laptop camera, or share your screen. Everyone in the room sees it in real time.</p>
-          </div>
-          <div className="step">
-            <div className="step-n">iii.</div>
-            <h3>Tap Ask AI</h3>
-            <p>It grabs a sharp frame and sends back only the answer. You can add a note if you want it explained.</p>
-          </div>
-        </div>
-      </section>
+        <span className="faint">Runs on Vercel and LiveKit. Bring your own AI key.</span>
+      </footer>
     </main>
   );
 }

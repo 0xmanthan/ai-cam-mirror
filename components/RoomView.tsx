@@ -1,14 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Track } from "livekit-client";
 import { useLiveRoom, type Feed } from "@/lib/client/useLiveRoom";
-import { getInstruction, getKeys, setInstruction as saveInstruction, type JoinInfo } from "@/lib/client/storage";
+import { getEffort, getInstruction, getKeys, setInstruction as saveInstruction, type JoinInfo } from "@/lib/client/storage";
 import type { AskResponse } from "@/lib/types";
 import { VideoView } from "./VideoView";
 import { KeysModal } from "./KeysModal";
 import { AnswerText } from "./AnswerText";
-import { AskIcon, CameraIcon, CameraOffIcon, CheckIcon, CopyIcon, FlipIcon, KeyIcon, LinkIcon, ScreenIcon } from "./Icons";
+import {
+  AskIcon,
+  CameraIcon,
+  CameraOffIcon,
+  CheckIcon,
+  CloseIcon,
+  CopyIcon,
+  FlipIcon,
+  KeyIcon,
+  LinkIcon,
+  ScreenIcon,
+} from "./Icons";
 
 type Answer = {
   id: string;
@@ -21,6 +32,7 @@ type Answer = {
   provider?: string;
   model?: string;
   ms?: number;
+  tokens?: number;
   note?: string;
 };
 
@@ -33,6 +45,12 @@ const PROVIDER_LABEL: Record<string, string> = {
 
 function initial(name: string) {
   return (name.trim()[0] || "?").toUpperCase();
+}
+
+function metaLine(a: Answer) {
+  const parts = [PROVIDER_LABEL[a.provider!] ?? a.provider, a.model, `${((a.ms ?? 0) / 1000).toFixed(1)}s`];
+  if (a.tokens) parts.push(`${a.tokens.toLocaleString()} tokens`);
+  return parts.join(" · ");
 }
 
 function feedLabel(f: Feed) {
@@ -50,6 +68,8 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
   const [note, setNote] = useState("");
   const [toast, setToast] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(null);
+  const inFlight = useRef(new Set<string>());
   const canShareScreen = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
   useEffect(() => {
@@ -92,6 +112,12 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
         setToast("Add an API key first. It only takes a few seconds.");
         return;
       }
+      // One request per feed at a time: double taps would just burn free-tier quota.
+      if (inFlight.current.has(feed.key)) {
+        setToast("Still answering the last one…");
+        return;
+      }
+      inFlight.current.add(feed.key);
       const id = Math.random().toString(36).slice(2);
       const instruction = note.trim() || undefined;
       setAnswers((as) => [{ id, from: feedLabel(feed), at: Date.now(), status: "loading" as const, note: instruction }, ...as].slice(0, 30));
@@ -102,13 +128,16 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
         const res = await fetch("/api/ask", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ image, instruction, keys }),
+          body: JSON.stringify({ image, instruction, keys, effort: getEffort() }),
         });
         const j = (await res.json().catch(() => ({ ok: false, error: `Request failed (${res.status})` }))) as AskResponse;
-        if (j.ok) patch(id, { status: "done", text: j.answer, provider: j.provider, model: j.model, ms: j.ms });
+        if (j.ok)
+          patch(id, { status: "done", text: j.answer, provider: j.provider, model: j.model, ms: j.ms, tokens: j.tokens });
         else patch(id, { status: "error", error: j.error });
       } catch (e) {
         patch(id, { status: "error", error: (e as Error).message || "Something went wrong" });
+      } finally {
+        inFlight.current.delete(feed.key);
       }
     },
     [live, note],
@@ -184,7 +213,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
                 <div className="overlay-bl">
                   <span className="tag">{feedLabel(stage)}</span>
                 </div>
-                <div className="overlay-br">
+                <div className="overlay-br hide-sm">
                   <button className="btn btn-primary ask-btn" onClick={() => ask(stage)}>
                     <AskIcon size={20} />
                     Ask AI
@@ -210,7 +239,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
             )}
           </div>
 
-          <div className="dock">
+          <div className="dock hide-sm">
             <button
               className={`btn ${live.camOn ? "btn-on" : "btn-ghost"}`}
               disabled={live.status !== "connected"}
@@ -322,7 +351,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
                     <div className="answer-meta">
                       <span>
                         {latest.status === "done"
-                          ? `${PROVIDER_LABEL[latest.provider!] ?? latest.provider} · ${latest.model} · ${((latest.ms ?? 0) / 1000).toFixed(1)}s`
+                          ? metaLine(latest)
                           : latest.note
                             ? `Note: ${latest.note}`
                             : ""}
@@ -431,6 +460,72 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
           </div>
         </aside>
       </div>
+
+      {latest && dismissed !== latest.id && (
+        <div className="m-answer" aria-live="polite">
+          <div className="m-answer-head">
+            <span className="eyebrow">{latest.status === "loading" ? "Asking AI" : `Answer · ${latest.from}`}</span>
+            <div className="row" style={{ gap: 6 }}>
+              {latest.status === "done" && (
+                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => copy(latest.text!, latest.id)} aria-label="Copy">
+                  {copied === latest.id ? <CheckIcon size={15} /> : <CopyIcon size={15} />}
+                </button>
+              )}
+              <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setDismissed(latest.id)} aria-label="Hide">
+                <CloseIcon size={15} />
+              </button>
+            </div>
+          </div>
+          {latest.status === "loading" && (
+            <div className="loading-line" style={{ margin: "6px 0 2px" }}>
+              <span className="pulse" />
+              {latest.image ? "Reading the question…" : "Grabbing a sharp frame…"}
+            </div>
+          )}
+          {latest.status === "done" && (
+            <div className="m-answer-text">
+              <AnswerText text={latest.text!} />
+            </div>
+          )}
+          {latest.status === "error" && <p className="answer-error" style={{ margin: "6px 0 2px" }}>{latest.error}</p>}
+          {latest.status === "done" && <div className="m-answer-meta">{metaLine(latest)}</div>}
+        </div>
+      )}
+
+      <nav className="m-bar" aria-label="Room controls">
+        <button
+          className={`m-btn ${live.camOn ? "on" : ""}`}
+          disabled={live.status !== "connected"}
+          onClick={() => run(live.toggleCamera, "Couldn't start camera")}
+          aria-label={live.camOn ? "Turn camera off" : "Turn camera on"}
+        >
+          {live.camOn ? <CameraIcon size={22} /> : <CameraOffIcon size={22} />}
+          <span>{live.camOn ? "Live" : "Camera"}</span>
+        </button>
+        {live.camOn && (
+          <button className="m-btn" onClick={() => run(live.flipCamera, "Couldn't switch camera")} aria-label="Flip camera">
+            <FlipIcon size={22} />
+            <span>Flip</span>
+          </button>
+        )}
+        <button
+          className="btn btn-primary m-ask"
+          disabled={!stage}
+          onClick={() => {
+            if (stage) {
+              setDismissed(null);
+              ask(stage);
+            }
+          }}
+        >
+          <AskIcon size={22} />
+          {stage ? "Ask AI" : "Nobody's live"}
+        </button>
+        <button className="m-btn" onClick={() => setKeysOpen(true)} aria-label="AI keys">
+          <KeyIcon size={22} />
+          <span>{keyCount ? `Keys · ${keyCount}` : "Keys"}</span>
+        </button>
+      </nav>
 
       {keysOpen && (
         <KeysModal

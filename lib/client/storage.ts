@@ -1,4 +1,4 @@
-import type { KeyConfig } from "@/lib/types";
+import type { Effort, KeyConfig } from "@/lib/types";
 
 function read<T>(key: string, fallback: T): T {
   try {
@@ -36,6 +36,9 @@ export const setName = (n: string) => write("acm.name", n);
 
 export const getKeys = () => read<KeyConfig[]>("acm.keys", []);
 export const setKeys = (k: KeyConfig[]) => write("acm.keys", k);
+
+export const getEffort = () => read<Effort>("acm.effort", "balanced");
+export const setEffort = (e: Effort) => write("acm.effort", e);
 
 export const getInstruction = () => read<string>("acm.instruction", "");
 export const setInstruction = (s: string) => write("acm.instruction", s);
