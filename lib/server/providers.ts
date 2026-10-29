@@ -120,18 +120,18 @@ function geminiThinking(model: string, effort: Effort) {
 async function callGemini(
   key: string,
   model: string,
-  img: Image,
+  imgs: Image[],
   instruction: string | undefined,
   effort: Effort,
   signal: AbortSignal,
 ): Promise<Result> {
   const thinking = geminiThinking(model, effort);
   try {
-    return await geminiRequest(key, model, img, instruction, thinking, signal);
+    return await geminiRequest(key, model, imgs, instruction, thinking, signal);
   } catch (e) {
     // Older/newer models may reject a thinking setting; retry once with the model's defaults.
     if (thinking && e instanceof ProviderError && e.status === 400 && /think/i.test(e.message)) {
-      return geminiRequest(key, model, img, instruction, undefined, signal);
+      return geminiRequest(key, model, imgs, instruction, undefined, signal);
     }
     throw e;
   }
@@ -140,7 +140,7 @@ async function callGemini(
 async function geminiRequest(
   key: string,
   model: string,
-  img: Image,
+  imgs: Image[],
   instruction: string | undefined,
   thinkingConfig: ReturnType<typeof geminiThinking>,
   signal: AbortSignal,
@@ -155,7 +155,10 @@ async function geminiRequest(
       contents: [
         {
           role: "user",
-          parts: [{ inline_data: { mime_type: img.mime, data: img.b64 } }, { text: userText(instruction) }],
+          parts: [
+            ...imgs.map((img) => ({ inline_data: { mime_type: img.mime, data: img.b64 } })),
+            { text: userText(instruction, imgs.length) },
+          ],
         },
       ],
       generationConfig: {
@@ -181,7 +184,7 @@ async function callOpenAICompatible(
   baseUrl: string,
   key: string,
   model: string,
-  img: Image,
+  imgs: Image[],
   instruction: string | undefined,
   signal: AbortSignal,
   extraHeaders: Record<string, string> = {},
@@ -196,8 +199,11 @@ async function callOpenAICompatible(
         {
           role: "user",
           content: [
-            { type: "text", text: userText(instruction) },
-            { type: "image_url", image_url: { url: `data:${img.mime};base64,${img.b64}`, detail: "high" } },
+            { type: "text", text: userText(instruction, imgs.length) },
+            ...imgs.map((img) => ({
+              type: "image_url",
+              image_url: { url: `data:${img.mime};base64,${img.b64}`, detail: "high" },
+            })),
           ],
         },
       ],
@@ -212,7 +218,7 @@ async function callOpenAICompatible(
 async function callAnthropic(
   key: string,
   model: string,
-  img: Image,
+  imgs: Image[],
   instruction: string | undefined,
   signal: AbortSignal,
 ): Promise<Result> {
@@ -227,8 +233,8 @@ async function callAnthropic(
         {
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: img.mime, data: img.b64 } },
-            { type: "text", text: userText(instruction) },
+            ...imgs.map((img) => ({ type: "image", source: { type: "base64", media_type: img.mime, data: img.b64 } })),
+            { type: "text", text: userText(instruction, imgs.length) },
           ],
         },
       ],
@@ -265,7 +271,7 @@ export async function callProvider(
   provider: ProviderId,
   model: string,
   apiKey: string,
-  img: Image,
+  imgs: Image[],
   instruction: string | undefined,
   effort: Effort,
   signal: AbortSignal,
@@ -274,18 +280,18 @@ export async function callProvider(
   let r: Result;
   switch (provider) {
     case "gemini":
-      r = await callGemini(key, model, img, instruction, effort, signal);
+      r = await callGemini(key, model, imgs, instruction, effort, signal);
       break;
     case "openai":
-      r = await callOpenAICompatible("https://api.openai.com/v1", key, model, img, instruction, signal);
+      r = await callOpenAICompatible("https://api.openai.com/v1", key, model, imgs, instruction, signal);
       break;
     case "openrouter":
-      r = await callOpenAICompatible("https://openrouter.ai/api/v1", key, model, img, instruction, signal, {
+      r = await callOpenAICompatible("https://openrouter.ai/api/v1", key, model, imgs, instruction, signal, {
         "x-title": "AI Cam Mirror",
       });
       break;
     case "anthropic":
-      r = await callAnthropic(key, model, img, instruction, signal);
+      r = await callAnthropic(key, model, imgs, instruction, signal);
       break;
   }
   return { provider, model, answer: r.answer.trim(), tokens: r.tokens };

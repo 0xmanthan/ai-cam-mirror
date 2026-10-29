@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { callProvider, modelsFor, parseDataUrl, retryableOnSameKey } from "@/lib/server/providers";
-import type { AskRequest, AskResponse, Effort } from "@/lib/types";
+import { MAX_SHOTS, type AskRequest, type AskResponse, type Effort } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -21,8 +21,17 @@ export async function POST(req: Request) {
     return NextResponse.json<AskResponse>({ ok: false, error: "Bad JSON" }, { status: 400 });
   }
 
-  const img = typeof body.image === "string" ? parseDataUrl(body.image) : null;
-  if (!img) return NextResponse.json<AskResponse>({ ok: false, error: "Missing or invalid image" }, { status: 400 });
+  const raw = Array.isArray(body.images) ? body.images : [];
+  if (raw.length > MAX_SHOTS) {
+    return NextResponse.json<AskResponse>({ ok: false, error: `Up to ${MAX_SHOTS} photos at once` }, { status: 400 });
+  }
+  const imgs = raw.flatMap((u) => {
+    const img = typeof u === "string" ? parseDataUrl(u) : null;
+    return img ? [img] : [];
+  });
+  if (imgs.length === 0 || imgs.length !== raw.length) {
+    return NextResponse.json<AskResponse>({ ok: false, error: "Missing or invalid image" }, { status: 400 });
+  }
 
   const keys = (Array.isArray(body.keys) ? body.keys : []).filter(
     (k) => k && typeof k.apiKey === "string" && k.apiKey.trim() && k.enabled !== false,
@@ -41,7 +50,7 @@ export async function POST(req: Request) {
     const { provider, models } = await modelsFor(k, deadline);
     for (const model of models) {
       try {
-        const r = await callProvider(provider, model, k.apiKey, img, instruction, effort, deadline);
+        const r = await callProvider(provider, model, k.apiKey, imgs, instruction, effort, deadline);
         return NextResponse.json<AskResponse>({ ok: true, ...r, ms: Date.now() - started });
       } catch (e) {
         attempts.push({ provider, model, error: (e as Error).message });

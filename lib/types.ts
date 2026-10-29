@@ -18,8 +18,11 @@ export type KeyConfig = {
 /** How hard the model may think. Fewer thinking tokens = more answers per free-tier minute/day. */
 export type Effort = "fast" | "balanced" | "deep";
 
+export const MAX_SHOTS = 6;
+
 export type AskRequest = {
-  image: string; // data URL
+  /** data URLs, in capture order; read together as one context */
+  images: string[];
   instruction?: string;
   keys: KeyConfig[];
   effort?: Effort;

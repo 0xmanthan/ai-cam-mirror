@@ -19,7 +19,10 @@ question on screen — no typing, no question repetition, no explanation unless 
 - **Broadcast.** Anyone can turn on their camera (front/back flip on phones) or share their screen. Video is
   published at 1080p with simulcast (360p/720p/1080p) so thumbnails are cheap and the stage stays sharp. The encoder
   is told the content is text (`contentHint = "text"`, `maintain-resolution`).
-- **Ask AI.** The viewer's browser asks the broadcaster (LiveKit RPC) for a **full-resolution still** straight from
+- **Multi-shot.** The shutter adds photos to a tray (up to 6). One **Ask AI** sends them all in a single request,
+  and the prompt treats them as one context (a question split across shots, options on another page, a figure).
+  With 3 or more photos each is shrunk to 1280px to save image tokens.
+- **Ask AI.** For each shot, the viewer's browser asks the broadcaster (LiveKit RPC) for a **full-resolution still** straight from
   their camera, which arrives over a LiveKit byte stream. That way the AI reads a crisp frame instead of a compressed
   video frame. If that fails, it falls back to the received video frame. The still and the viewer's keys go to
   `/api/ask`, which tries each key in priority order until one answers (the "key router"). Keys stay in the viewer's
@@ -33,7 +36,7 @@ question on screen — no typing, no question repetition, no explanation unless 
   fall through automatically. Snapshots are capped at 1536px (~4 image tiles, about 1k tokens). Thinking is
   configurable (Fast / Balanced / Deep) and output is capped, so each answer costs about 1–2k tokens.
 
-Shortcut: press **A** on desktop to ask about the stage feed.
+Shortcuts on desktop: **Space** takes a photo, **Enter** sends.
 
 ## Deploy (free)
 

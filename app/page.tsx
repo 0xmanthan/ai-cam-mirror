@@ -65,8 +65,8 @@ export default function Home() {
           <em>Get the answer.</em>
         </h1>
         <p className="l-lede">
-          One phone goes live. Everyone in the room can tap <b>Ask AI</b> and get back only the answer to what&rsquo;s
-          on screen. No typing, no fluff.
+          One phone goes live. Everyone in the room can snap the question, even across several shots, and tap{" "}
+          <b>Ask AI</b> to get back only the answer. No typing, no fluff.
         </p>
         <Launcher id="hero" />
         <HeroVisual />
@@ -128,8 +128,8 @@ export default function Home() {
               </div>
             </div>
             <span className="step-num">03</span>
-            <h3>Tap Ask AI</h3>
-            <p>Mirror grabs a sharp frame and the AI sends back the answer and nothing else.</p>
+            <h3>Snap, then ask</h3>
+            <p>Take one photo, or several if the question runs long. Tap Ask AI and get one answer for all of them.</p>
           </article>
         </div>
       </section>

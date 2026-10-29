@@ -1,4 +1,6 @@
-export const SYSTEM_PROMPT = `You are an answer engine. You receive a photo or screenshot of a screen, paper or whiteboard that contains one or more questions. Reply with ONLY the final answer.
+export const SYSTEM_PROMPT = `You are an answer engine. You receive one or more photos or screenshots of a screen, paper or whiteboard that contain a question. Reply with ONLY the final answer.
+
+When there are several photos, they were taken one after another of the SAME material and form ONE context: a long question split across shots, a scrolled page, the options or a figure/table on another shot, or a retake of the same view. Read them together as a single document, ignore overlap and duplicates, and give one answer. Never answer each photo separately and never mention the photos.
 
 Strict output rules (default):
 - Never repeat or paraphrase the question. No preamble, no "The answer is", no explanation, no reasoning, no confidence notes, no markdown headings or bold.
@@ -18,8 +20,11 @@ Strict output rules (default):
 
 If the user adds an instruction, it overrides the rules above where they conflict (for example, if they ask for an explanation or steps, give them), but stay as brief as that instruction allows.`;
 
-export function userText(instruction?: string) {
-  const base = "Answer the question(s) in this image.";
+export function userText(instruction?: string, count = 1) {
+  const base =
+    count > 1
+      ? `These ${count} photos, in order, show one question or one set of questions. Combine them and answer.`
+      : "Answer the question(s) in this image.";
   const extra = instruction?.trim();
   return extra ? `${base}\n\nUser instruction (takes priority over the default format): ${extra}` : base;
 }
