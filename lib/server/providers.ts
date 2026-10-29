@@ -68,6 +68,7 @@ export class ProviderError extends Error {
 
 type Image = { mime: string; b64: string };
 type Result = { answer: string; tokens?: number };
+export type Question = { instruction?: string; stitched?: number };
 
 export function parseDataUrl(dataUrl: string): Image | null {
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
@@ -121,17 +122,17 @@ async function callGemini(
   key: string,
   model: string,
   imgs: Image[],
-  instruction: string | undefined,
+  q: Question,
   effort: Effort,
   signal: AbortSignal,
 ): Promise<Result> {
   const thinking = geminiThinking(model, effort);
   try {
-    return await geminiRequest(key, model, imgs, instruction, thinking, signal);
+    return await geminiRequest(key, model, imgs, q, thinking, signal);
   } catch (e) {
     // Older/newer models may reject a thinking setting; retry once with the model's defaults.
     if (thinking && e instanceof ProviderError && e.status === 400 && /think/i.test(e.message)) {
-      return geminiRequest(key, model, imgs, instruction, undefined, signal);
+      return geminiRequest(key, model, imgs, q, undefined, signal);
     }
     throw e;
   }
@@ -141,7 +142,7 @@ async function geminiRequest(
   key: string,
   model: string,
   imgs: Image[],
-  instruction: string | undefined,
+  q: Question,
   thinkingConfig: ReturnType<typeof geminiThinking>,
   signal: AbortSignal,
 ): Promise<Result> {
@@ -157,7 +158,7 @@ async function geminiRequest(
           role: "user",
           parts: [
             ...imgs.map((img) => ({ inline_data: { mime_type: img.mime, data: img.b64 } })),
-            { text: userText(instruction, imgs.length) },
+            { text: userText(q.instruction, imgs.length, q.stitched) },
           ],
         },
       ],
@@ -166,7 +167,7 @@ async function geminiRequest(
         // Cap output only when the thinking budget is known; otherwise thinking could eat the cap.
         ...(thinkingConfig && !("thinkingBudget" in thinkingConfig && thinkingConfig.thinkingBudget! >= 0)
           ? {}
-          : { maxOutputTokens: answerBudget(instruction) + thinkingCap }),
+          : { maxOutputTokens: answerBudget(q.instruction) + thinkingCap }),
       },
     },
     signal,
@@ -185,7 +186,7 @@ async function callOpenAICompatible(
   key: string,
   model: string,
   imgs: Image[],
-  instruction: string | undefined,
+  q: Question,
   signal: AbortSignal,
   extraHeaders: Record<string, string> = {},
 ): Promise<Result> {
@@ -199,7 +200,7 @@ async function callOpenAICompatible(
         {
           role: "user",
           content: [
-            { type: "text", text: userText(instruction, imgs.length) },
+            { type: "text", text: userText(q.instruction, imgs.length, q.stitched) },
             ...imgs.map((img) => ({
               type: "image_url",
               image_url: { url: `data:${img.mime};base64,${img.b64}`, detail: "high" },
@@ -219,7 +220,7 @@ async function callAnthropic(
   key: string,
   model: string,
   imgs: Image[],
-  instruction: string | undefined,
+  q: Question,
   signal: AbortSignal,
 ): Promise<Result> {
   const j = await postJson(
@@ -227,14 +228,14 @@ async function callAnthropic(
     { "x-api-key": key, "anthropic-version": "2023-06-01" },
     {
       model,
-      max_tokens: answerBudget(instruction) * 2,
+      max_tokens: answerBudget(q.instruction) * 2,
       system: SYSTEM_PROMPT,
       messages: [
         {
           role: "user",
           content: [
             ...imgs.map((img) => ({ type: "image", source: { type: "base64", media_type: img.mime, data: img.b64 } })),
-            { type: "text", text: userText(instruction, imgs.length) },
+            { type: "text", text: userText(q.instruction, imgs.length, q.stitched) },
           ],
         },
       ],
@@ -272,7 +273,7 @@ export async function callProvider(
   model: string,
   apiKey: string,
   imgs: Image[],
-  instruction: string | undefined,
+  q: Question,
   effort: Effort,
   signal: AbortSignal,
 ) {
@@ -280,18 +281,18 @@ export async function callProvider(
   let r: Result;
   switch (provider) {
     case "gemini":
-      r = await callGemini(key, model, imgs, instruction, effort, signal);
+      r = await callGemini(key, model, imgs, q, effort, signal);
       break;
     case "openai":
-      r = await callOpenAICompatible("https://api.openai.com/v1", key, model, imgs, instruction, signal);
+      r = await callOpenAICompatible("https://api.openai.com/v1", key, model, imgs, q, signal);
       break;
     case "openrouter":
-      r = await callOpenAICompatible("https://openrouter.ai/api/v1", key, model, imgs, instruction, signal, {
+      r = await callOpenAICompatible("https://openrouter.ai/api/v1", key, model, imgs, q, signal, {
         "x-title": "AI Cam Mirror",
       });
       break;
     case "anthropic":
-      r = await callAnthropic(key, model, imgs, instruction, signal);
+      r = await callAnthropic(key, model, imgs, q, signal);
       break;
   }
   return { provider, model, answer: r.answer.trim(), tokens: r.tokens };

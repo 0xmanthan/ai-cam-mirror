@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Track } from "livekit-client";
 import { useLiveRoom, type Feed } from "@/lib/client/useLiveRoom";
 import { getEffort, getInstruction, getKeys, setInstruction as saveInstruction, type JoinInfo } from "@/lib/client/storage";
-import { shrinkDataUrl } from "@/lib/client/snapshot";
+import { shrinkDataUrl, stitchDataUrls } from "@/lib/client/snapshot";
 import { MAX_SHOTS, type AskResponse } from "@/lib/types";
 import { VideoView } from "./VideoView";
 import { KeysModal } from "./KeysModal";
@@ -34,6 +34,8 @@ type Answer = {
   images: string[];
   text?: string;
   error?: string;
+  /** per-model errors from the server, for figuring out why it failed */
+  detail?: string;
   provider?: string;
   model?: string;
   ms?: number;
@@ -166,17 +168,25 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
     setNoteOpen(false);
     setDismissed(null);
     setAnswers((as) => [{ id, from, at: Date.now(), status: "loading" as const, images: originals, note: instruction }, ...as].slice(0, 30));
-    try {
-      // Each photo costs image tokens; smaller stills keep multi-photo questions inside free-tier limits.
-      const images = originals.length >= 3 ? await Promise.all(originals.map((u) => shrinkDataUrl(u, 1280))) : originals;
+    const effort = getEffort();
+    const ask = async (images: string[], stitched?: number) => {
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ images, instruction, keys, effort: getEffort() }),
+        body: JSON.stringify({ images, stitched, instruction, keys, effort }),
       });
-      const j = (await res.json().catch(() => ({ ok: false, error: `Request failed (${res.status})` }))) as AskResponse;
+      return (await res.json().catch(() => ({ ok: false, error: `Request failed (${res.status})` }))) as AskResponse;
+    };
+    try {
+      // Each photo costs image tokens and upload time, so shrink them whenever there's more than one.
+      const images = originals.length > 1 ? await Promise.all(originals.map((u) => shrinkDataUrl(u, 1280))) : originals;
+      let j = await ask(images);
+      // Some models/keys choke on several images in one request; retry once with them stitched into one picture.
+      if (!j.ok && images.length > 1 && !/rate limit|free-tier limit/i.test(j.error)) {
+        j = await ask([await stitchDataUrls(images)], images.length);
+      }
       if (j.ok) patch(id, { status: "done", text: j.answer, provider: j.provider, model: j.model, ms: j.ms, tokens: j.tokens });
-      else patch(id, { status: "error", error: j.error });
+      else patch(id, { status: "error", error: j.error, detail: j.attempts?.map((a) => `${a.model}: ${a.error}`).join("\n") });
     } catch (e) {
       patch(id, { status: "error", error: (e as Error).message || "Something went wrong" });
     } finally {
@@ -504,6 +514,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
                         {a.status === "done" ? ` · ${metaLine(a)}` : ""}
                         {a.note ? ` · Note: ${a.note}` : ""}
                       </div>
+                      {a.status === "error" && a.detail && <pre className="answer-detail">{a.detail}</pre>}
                     </div>
                     {a.status === "done" && (
                       <button className="btn btn-ghost btn-sm btn-icon" onClick={() => copy(a.text!, a.id)} aria-label="Copy">

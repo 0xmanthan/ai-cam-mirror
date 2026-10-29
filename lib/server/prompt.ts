@@ -20,11 +20,13 @@ Strict output rules (default):
 
 If the user adds an instruction, it overrides the rules above where they conflict (for example, if they ask for an explanation or steps, give them), but stay as brief as that instruction allows.`;
 
-export function userText(instruction?: string, count = 1) {
+export function userText(instruction?: string, count = 1, stitched = 0) {
   const base =
-    count > 1
-      ? `These ${count} photos, in order, show one question or one set of questions. Combine them and answer.`
-      : "Answer the question(s) in this image.";
+    stitched > 1
+      ? `This image is ${stitched} photos stacked top to bottom, in order. Together they show one question or one set of questions. Combine them and answer.`
+      : count > 1
+        ? `These ${count} photos, in order, show one question or one set of questions. Combine them and answer.`
+        : "Answer the question(s) in this image.";
   const extra = instruction?.trim();
   return extra ? `${base}\n\nUser instruction (takes priority over the default format): ${extra}` : base;
 }

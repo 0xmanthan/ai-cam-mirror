@@ -23,6 +23,8 @@ export const MAX_SHOTS = 6;
 export type AskRequest = {
   /** data URLs, in capture order; read together as one context */
   images: string[];
+  /** set when `images` is one picture made by stacking this many photos top to bottom */
+  stitched?: number;
   instruction?: string;
   keys: KeyConfig[];
   effort?: Effort;

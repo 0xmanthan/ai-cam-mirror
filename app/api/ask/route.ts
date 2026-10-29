@@ -41,6 +41,7 @@ export async function POST(req: Request) {
   }
 
   const instruction = typeof body.instruction === "string" ? body.instruction.slice(0, 2000) : undefined;
+  const stitched = imgs.length === 1 && Number.isInteger(body.stitched) ? Math.min(Number(body.stitched), MAX_SHOTS) : 0;
   const effort: Effort = EFFORTS.includes(body.effort as Effort) ? (body.effort as Effort) : "balanced";
   const started = Date.now();
   const deadline = AbortSignal.timeout(55_000);
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     const { provider, models } = await modelsFor(k, deadline);
     for (const model of models) {
       try {
-        const r = await callProvider(provider, model, k.apiKey, imgs, instruction, effort, deadline);
+        const r = await callProvider(provider, model, k.apiKey, imgs, { instruction, stitched }, effort, deadline);
         return NextResponse.json<AskResponse>({ ok: true, ...r, ms: Date.now() - started });
       } catch (e) {
         attempts.push({ provider, model, error: (e as Error).message });

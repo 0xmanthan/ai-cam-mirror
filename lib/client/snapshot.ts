@@ -72,3 +72,31 @@ export async function shrinkDataUrl(dataUrl: string, maxEdge: number, quality = 
   canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", quality);
 }
+
+/** Stack several stills top to bottom into one JPEG (with a thin divider), as a single-image fallback. */
+export async function stitchDataUrls(urls: string[], width = 1024, maxHeight = 4096): Promise<string> {
+  const imgs = await Promise.all(
+    urls.map(async (u) => {
+      const img = new Image();
+      img.src = u;
+      await img.decode();
+      return img;
+    }),
+  );
+  const gap = 12;
+  const heights = imgs.map((i) => Math.round((i.naturalHeight * width) / i.naturalWidth));
+  const total = heights.reduce((a, b) => a + b, 0) + gap * (imgs.length - 1);
+  const scale = Math.min(1, maxHeight / total);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(total * scale);
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  let y = 0;
+  imgs.forEach((img, i) => {
+    ctx.drawImage(img, 0, Math.round(y * scale), canvas.width, Math.round(heights[i] * scale));
+    y += heights[i] + gap;
+  });
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
