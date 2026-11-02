@@ -5,6 +5,7 @@ import { Track } from "livekit-client";
 import { useLiveRoom, type Feed } from "@/lib/client/useLiveRoom";
 import { getEffort, getInstruction, getKeys, setInstruction as saveInstruction, type JoinInfo } from "@/lib/client/storage";
 import { shrinkDataUrl, stitchDataUrls } from "@/lib/client/snapshot";
+import { canCopyImage, canShareFiles, copyImage, downloadImage, shareImage, shotFileName } from "@/lib/client/share";
 import { MAX_SHOTS, type AskResponse } from "@/lib/types";
 import { VideoView } from "./VideoView";
 import { KeysModal } from "./KeysModal";
@@ -14,17 +15,28 @@ import {
   CheckIcon,
   CloseIcon,
   CopyIcon,
+  DownloadIcon,
+  ExpandIcon,
   FlipIcon,
   HistoryIcon,
+  ImagesIcon,
   KeyIcon,
   LinkIcon,
   NoteIcon,
   ScreenIcon,
   SendIcon,
+  ShareIcon,
+  TrashIcon,
   UsersIcon,
 } from "./Icons";
 
 type Shot = { id: string; status: "loading" | "ready"; url?: string; from: string };
+
+/** Screenshot mode: stills kept on this device only (memory, gone when you leave). */
+type Screenshot = { id: string; url: string; at: number; from: string };
+type Mode = "ask" | "shot";
+const MAX_SCREENSHOTS = 60;
+const MODE_KEY = "acm.mode";
 
 type Answer = {
   id: string;
@@ -73,7 +85,15 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
   const [spotKey, setSpotKey] = useState<string | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
   const [answers, setAnswers] = useState<Answer[]>([]);
-  const [sheet, setSheet] = useState<"people" | "history" | null>(null);
+  const [sheet, setSheet] = useState<"people" | "history" | "shots" | null>(null);
+  const [mode, setMode] = useState<Mode>("ask");
+  const [screens, setScreens] = useState<Screenshot[]>([]);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
+  const [clean, setClean] = useState(false);
+  const [cleanUi, setCleanUi] = useState(false);
+  const [canShare, setCanShare] = useState(false);
+  const [canCopy, setCanCopy] = useState(false);
   const [keysOpen, setKeysOpen] = useState(false);
   const [keyCount, setKeyCount] = useState(0);
   const [note, setNote] = useState("");
@@ -88,7 +108,70 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
   useEffect(() => {
     setNote(getInstruction());
     setKeyCount(getKeys().filter((k) => k.apiKey && k.enabled !== false).length);
+    setCanShare(canShareFiles());
+    setCanCopy(canCopyImage());
+    try {
+      if (localStorage.getItem(MODE_KEY) === "shot") setMode("shot");
+    } catch {}
   }, []);
+
+  const pickMode = (m: Mode) => {
+    setMode(m);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {}
+  };
+
+  // Keep the screen awake for long sessions: a sleeping phone drops its broadcast.
+  useEffect(() => {
+    if (live.status !== "connected" || !("wakeLock" in navigator)) return;
+    let lock: WakeLockSentinel | null = null;
+    let stopped = false;
+    const grab = async () => {
+      try {
+        if (document.visibilityState === "visible" && !stopped) lock = await navigator.wakeLock.request("screen");
+      } catch {}
+    };
+    grab();
+    document.addEventListener("visibilitychange", grab);
+    return () => {
+      stopped = true;
+      document.removeEventListener("visibilitychange", grab);
+      lock?.release().catch(() => {});
+    };
+  }, [live.status]);
+
+  // Camera-only view: go browser-fullscreen where allowed, and leave the view if the user exits fullscreen.
+  useEffect(() => {
+    if (!clean) return;
+    const el = document.documentElement;
+    let wentFull = false;
+    if (document.fullscreenEnabled && !document.fullscreenElement) {
+      el.requestFullscreen?.().then(() => (wentFull = true)).catch(() => {});
+    }
+    const onChange = () => {
+      if (wentFull && !document.fullscreenElement) setClean(false);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    };
+  }, [clean]);
+
+  // In camera-only view a tap shows the exit button for a few seconds.
+  useEffect(() => {
+    if (!cleanUi) return;
+    const t = setTimeout(() => setCleanUi(false), 3000);
+    return () => clearTimeout(t);
+  }, [cleanUi]);
+
+  // The little screenshot preview fades after a few seconds, like a phone's.
+  useEffect(() => {
+    if (!preview) return;
+    const t = setTimeout(() => setPreview(null), 5000);
+    return () => clearTimeout(t);
+  }, [preview]);
 
   useEffect(() => {
     if (live.status === "ended") onEnded(live.endReason);
@@ -126,9 +209,24 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
     }
   }
 
+  /** Screenshot mode: save a sharp still of the stage feed on this device. */
+  const screenshot = useCallback(async () => {
+    if (!stage) return;
+    setFlash((f) => f + 1);
+    try {
+      const url = await live.snapshot(stage);
+      const id = uid();
+      setScreens((s) => [{ id, url, at: Date.now(), from: feedLabel(stage) }, ...s].slice(0, MAX_SCREENSHOTS));
+      setPreview(id);
+    } catch (e) {
+      setToast((e as Error).message || "Couldn't take that screenshot");
+    }
+  }, [stage, live]);
+
   /** Shutter: add a sharp still of the stage feed to the tray. */
   const capture = useCallback(async () => {
     if (!stage) return;
+    if (mode === "shot") return screenshot();
     if (shots.length >= MAX_SHOTS) {
       setToast(`Up to ${MAX_SHOTS} photos per question. Send these first.`);
       return;
@@ -143,7 +241,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
       setShots((s) => s.filter((x) => x.id !== id));
       setToast((e as Error).message || "Couldn't take that photo");
     }
-  }, [stage, shots.length, live]);
+  }, [stage, shots.length, live, mode, screenshot]);
 
   /** Send every photo in the tray as one question. */
   const send = useCallback(async () => {
@@ -194,12 +292,17 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
     }
   }, [shots, note]);
 
-  // Desktop: Space takes a photo, Enter sends.
+  // Desktop: Space takes a photo, Enter sends, Esc backs out of a full-screen view.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (viewing) setViewing(null);
+        else if (clean) setClean(false);
+        return;
+      }
       const t = e.target as HTMLElement;
       if (t.closest("input, textarea, select, button, [contenteditable]") || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (keysOpen || sheet) return;
+      if (keysOpen || sheet || viewing) return;
       if (e.key === " ") {
         e.preventDefault();
         capture();
@@ -210,7 +313,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [capture, send, keysOpen, sheet]);
+  }, [capture, send, keysOpen, sheet, viewing, clean]);
 
   async function copy(text: string, tag: string) {
     try {
@@ -222,10 +325,116 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
     }
   }
 
+  async function shareShot(s: Screenshot) {
+    const name = shotFileName(join.room, s.at);
+    try {
+      if (canShare) await shareImage(s.url, name);
+      else {
+        downloadImage(s.url, name);
+        setToast("Saved to your downloads.");
+      }
+    } catch {
+      downloadImage(s.url, name);
+      setToast("Sharing isn't available here, so it was saved instead.");
+    }
+  }
+
+  function saveShot(s: Screenshot) {
+    downloadImage(s.url, shotFileName(join.room, s.at));
+    setToast("Saved to your downloads.");
+  }
+
+  async function copyShot(s: Screenshot) {
+    try {
+      await copyImage(s.url);
+      setCopied(s.id);
+      setTimeout(() => setCopied((c) => (c === s.id ? null : c)), 1500);
+    } catch {
+      setToast("Couldn't copy the image. Try Share or Save.");
+    }
+  }
+
+  function askAboutShot(s: Screenshot) {
+    if (shots.length >= MAX_SHOTS) {
+      setToast(`Up to ${MAX_SHOTS} photos per question. Send these first.`);
+      return;
+    }
+    setShots((all) => [...all, { id: uid(), status: "ready", url: s.url, from: s.from }]);
+    pickMode("ask");
+    setViewing(null);
+    setSheet(null);
+  }
+
+  function deleteShot(s: Screenshot) {
+    setScreens((all) => all.filter((x) => x.id !== s.id));
+    setViewing(null);
+    if (preview === s.id) setPreview(null);
+  }
+
   const inviteUrl = typeof window !== "undefined" ? `${window.location.origin}/room/${join.room}` : "";
   const latest = answers[0];
   const readyCount = shots.filter((s) => s.status === "ready").length;
   const connected = live.status === "connected";
+  const viewed = screens.find((s) => s.id === viewing);
+  const previewShot = screens.find((s) => s.id === preview);
+  const lightbox = viewed && (
+    <div className="ss-view" role="dialog" aria-modal aria-label="Screenshot">
+      <div className="ss-view-top">
+        <button className="cam-icon" onClick={() => setViewing(null)} aria-label="Close">
+          <CloseIcon size={20} />
+        </button>
+        <span className="ss-view-meta">
+          {viewed.from} · {new Date(viewed.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        </span>
+        <button className="cam-icon" onClick={() => deleteShot(viewed)} aria-label="Delete screenshot">
+          <TrashIcon size={19} />
+        </button>
+      </div>
+      <img src={viewed.url} alt="Screenshot" />
+      <div className="ss-actions">
+        <button className="ss-action primary" onClick={() => shareShot(viewed)}>
+          <ShareIcon size={20} />
+          {canShare ? "Share" : "Save"}
+        </button>
+        {canShare && (
+          <button className="ss-action" onClick={() => saveShot(viewed)}>
+            <DownloadIcon size={20} />
+            Save
+          </button>
+        )}
+        {canCopy && (
+          <button className="ss-action" onClick={() => copyShot(viewed)}>
+            {copied === viewed.id ? <CheckIcon size={20} /> : <CopyIcon size={20} />}
+            {copied === viewed.id ? "Copied" : "Copy"}
+          </button>
+        )}
+        <button className="ss-action" onClick={() => askAboutShot(viewed)}>
+          <SendIcon size={20} />
+          Ask AI
+        </button>
+      </div>
+    </div>
+  );
+
+  // Camera-only view: the feed and nothing else. A tap brings back the exit button for a moment.
+  if (clean) {
+    return (
+      <div className="cam cam-clean" onClick={() => setCleanUi(true)}>
+        <div className="cam-stage">
+          {stage ? <VideoView key={stage.key} track={stage.track} /> : <p className="cam-clean-wait">Waiting for someone to go live…</p>}
+        </div>
+        {flash > 0 && <div className="cam-flash" key={flash} />}
+        <button
+          className={`cam-clean-exit ${cleanUi ? "show" : ""}`}
+          onClick={(e) => (e.stopPropagation(), setClean(false))}
+          aria-label="Exit camera-only view"
+        >
+          <CloseIcon size={16} />
+          Exit camera only
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="cam">
@@ -269,6 +478,15 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
               <ScreenIcon size={20} />
             </button>
           )}
+          <button
+            className="cam-icon"
+            disabled={!stage}
+            onClick={() => (setClean(true), setCleanUi(true))}
+            aria-label="Camera only view"
+            title="Camera only"
+          >
+            <ExpandIcon size={20} />
+          </button>
           <button className="cam-icon" onClick={() => setSheet("people")} aria-label="People">
             <UsersIcon size={20} />
             <span className="cam-badge">{people.length}</span>
@@ -330,6 +548,21 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
           </div>
         )}
 
+        {previewShot && !shots.length && (
+          <div className="ss-peek">
+            <button className="ss-peek-img" onClick={() => (setViewing(previewShot.id), setPreview(null))} aria-label="Open screenshot">
+              <img src={previewShot.url} alt="" />
+            </button>
+            <div className="ss-peek-text">
+              <strong>Screenshot saved</strong>
+              <span>{screens.length} this session · tap to open</span>
+            </div>
+            <button className="cam-mini" onClick={() => shareShot(previewShot)} aria-label={canShare ? "Share screenshot" : "Save screenshot"}>
+              {canShare ? <ShareIcon size={16} /> : <DownloadIcon size={16} />}
+            </button>
+          </div>
+        )}
+
         {shots.length > 0 && (
           <div className="cam-tray">
             <div className="cam-thumbs">
@@ -376,17 +609,33 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
           </div>
         )}
 
-        <div className="cam-controls">
-          <button className="cam-side" onClick={() => setSheet("history")} aria-label="Previous answers">
-            {latest?.images[0] ? <img src={latest.images[0]} alt="" /> : <HistoryIcon size={22} />}
-            {answers.length > 0 && <span className="cam-badge">{answers.length}</span>}
+        <div className="cam-modes" role="tablist" aria-label="Shutter mode">
+          <button role="tab" aria-selected={mode === "ask"} className={mode === "ask" ? "on" : ""} onClick={() => pickMode("ask")}>
+            Ask AI
           </button>
+          <button role="tab" aria-selected={mode === "shot"} className={mode === "shot" ? "on" : ""} onClick={() => pickMode("shot")}>
+            Screenshot
+          </button>
+        </div>
+
+        <div className="cam-controls">
+          {mode === "shot" ? (
+            <button className="cam-side" onClick={() => setSheet("shots")} aria-label="Screenshots">
+              {screens[0] ? <img src={screens[0].url} alt="" /> : <ImagesIcon size={22} />}
+              {screens.length > 0 && <span className="cam-badge">{screens.length}</span>}
+            </button>
+          ) : (
+            <button className="cam-side" onClick={() => setSheet("history")} aria-label="Previous answers">
+              {latest?.images[0] ? <img src={latest.images[0]} alt="" /> : <HistoryIcon size={22} />}
+              {answers.length > 0 && <span className="cam-badge">{answers.length}</span>}
+            </button>
+          )}
 
           <button
-            className="cam-shutter"
+            className={`cam-shutter ${mode === "shot" ? "ss" : ""}`}
             disabled={!stage}
             onClick={capture}
-            aria-label={shots.length ? "Take another photo" : "Take a photo"}
+            aria-label={mode === "shot" ? "Take a screenshot" : shots.length ? "Take another photo" : "Take a photo"}
           >
             <span />
           </button>
@@ -415,11 +664,13 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
           )}
         </div>
         <p className="cam-hint">
-          {stage
-            ? shots.length
-              ? "Add more photos of the same question, or tap Ask AI"
-              : "Tap the shutter to snap the question"
-            : " "}
+          {!stage
+            ? " "
+            : mode === "shot"
+              ? "Tap the shutter to save a screenshot you can share"
+              : shots.length
+                ? "Add more photos of the same question, or tap Ask AI"
+                : "Tap the shutter to snap the question"}
         </p>
       </div>
 
@@ -429,13 +680,38 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
           <div className="drawer" role="dialog" aria-modal>
             <div className="drawer-grab" />
             <div className="drawer-head">
-              <h2>{sheet === "people" ? "People" : "Answers"}</h2>
+              <h2>{sheet === "people" ? "People" : sheet === "shots" ? "Screenshots" : "Answers"}</h2>
               <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setSheet(null)} aria-label="Close">
                 <CloseIcon />
               </button>
             </div>
 
-            {sheet === "people" ? (
+            {sheet === "shots" ? (
+              screens.length === 0 ? (
+                <div className="empty-answers">
+                  <h3>No screenshots yet</h3>
+                  <p className="muted" style={{ margin: 0 }}>
+                    In Screenshot mode, each tap of the shutter saves the live view here. They stay on this device until you leave.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="muted" style={{ marginTop: 0, fontSize: 14 }}>
+                    Kept on this device until you leave the room. Tap one to share, save or copy it.
+                  </p>
+                  <ul className="ss-grid">
+                    {screens.map((s) => (
+                      <li key={s.id}>
+                        <button onClick={() => setViewing(s.id)} aria-label={`Open screenshot from ${s.from}`}>
+                          <img src={s.url} alt="" />
+                          <span>{new Date(s.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )
+            ) : sheet === "people" ? (
               <>
                 <p className="muted" style={{ marginTop: 0, fontSize: 14 }}>
                   {isCreator
@@ -537,6 +813,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
           }}
         />
       )}
+      {lightbox}
       {toast && <div className="toast cam-toast">{toast}</div>}
     </div>
   );

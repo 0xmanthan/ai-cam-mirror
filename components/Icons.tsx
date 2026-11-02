@@ -114,3 +114,33 @@ export const NoteIcon = (p: P) => (
     <path d="m13.5 6.5 4 4" />
   </Svg>
 );
+export const ExpandIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" />
+  </Svg>
+);
+export const ShareIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 15V4M8 8l4-4 4 4" />
+    <path d="M6 12H5a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-6a1 1 0 0 0-1-1h-1" />
+  </Svg>
+);
+export const DownloadIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 4v11M8 11l4 4 4-4" />
+    <path d="M5 20h14" />
+  </Svg>
+);
+export const TrashIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h16M10 11v6M14 11v6" />
+    <path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4h6v3" />
+  </Svg>
+);
+export const ImagesIcon = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <circle cx="9" cy="10" r="1.6" />
+    <path d="m21 16-5-5-8 8" />
+  </Svg>
+);
