@@ -47,6 +47,7 @@ type Screenshot = { id: string; url: string; at: number; from: string };
 type Mode = "ask" | "shot";
 const MAX_SCREENSHOTS = 60;
 const MODE_KEY = "acm.mode";
+const GOOGLE_TAB_KEY = "acm.googleTab";
 
 type Answer = {
   id: string;
@@ -212,19 +213,54 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
     };
   }, [shots]);
 
+  const pasteKey = () => (/Mac|iP/.test(navigator.platform) ? "⌘V" : "Ctrl+V");
+
+  /** Has this browser tab already opened Google AI Mode once? Then we only copy, and never pile up tabs. */
+  const googleOpened = () => {
+    try {
+      return sessionStorage.getItem(GOOGLE_TAB_KEY) === "1";
+    } catch {
+      return false;
+    }
+  };
+
   function handoffToast(r: Handoff) {
-    if (r === "copied") setToast(`Photo copied. In the Google tab, press ${/Mac|iP/.test(navigator.platform) ? "⌘V" : "Ctrl+V"}, then Enter.`);
+    if (r === "copied-open-tab") {
+      try {
+        sessionStorage.setItem(GOOGLE_TAB_KEY, "1");
+      } catch {}
+      setToast(`Photo copied. In the Google tab, press ${pasteKey()}, then Enter.`);
+    } else if (r === "copied") setToast(`Photo copied. Switch to your Google tab and press ${pasteKey()}.`);
     else if (r === "copied-no-tab") setToast("Photo copied. Open google.com/aimode and paste it there.");
     else if (r === "unavailable") setToast("Google isn't available in this browser. Use Screenshot, then Save.");
   }
 
+  /** The tray as one image: the photo itself, or all of them stacked (pre-stitched when possible). */
+  async function trayImage(ready: Shot[]) {
+    const key = ready.map((s) => s.id).join();
+    if (ready.length === 1) return ready[0].url!;
+    if (stitched.current?.key === key) return stitched.current.url;
+    return stitchDataUrls(ready.map((s) => s.url!));
+  }
+
+  /** Copy button: put the photo(s) on the clipboard to paste into any AI app or chat. */
+  async function copyTray() {
+    const ready = shots.filter((s) => s.status === "ready" && s.url);
+    if (!ready.length) return;
+    try {
+      await copyImage(await trayImage(ready));
+      setCopied("tray");
+      setTimeout(() => setCopied((c) => (c === "tray" ? null : c)), 1500);
+      setToast(`Copied${ready.length > 1 ? ` ${ready.length} photos as one image` : ""}. Paste it into any AI app or chat.`);
+    } catch {
+      setToast("Couldn't copy the image here. Try Screenshot, then Share or Save.");
+    }
+  }
+
   /** No AI key: send the photo(s) to Google instead. Stays synchronous up to the share/copy so the browser allows it. */
   async function askGoogle(ready: Shot[]) {
-    const key = ready.map((s) => s.id).join();
-    const image =
-      ready.length === 1 ? ready[0].url! : stitched.current?.key === key ? stitched.current.url : await stitchDataUrls(ready.map((s) => s.url!));
     try {
-      const r = await handOffToGoogle(image, shotFileName(join.room, Date.now()));
+      const r = await handOffToGoogle(await trayImage(ready), shotFileName(join.room, Date.now()), !googleOpened());
       handoffToast(r);
       if (r !== "cancelled" && r !== "unavailable") {
         setShots([]);
@@ -459,7 +495,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
         <button
           className="ss-action"
           onClick={() =>
-            handOffToGoogle(viewed.url, shotFileName(join.room, viewed.at))
+            handOffToGoogle(viewed.url, shotFileName(join.room, viewed.at), !googleOpened())
               .then(handoffToast)
               .catch(() => handoffToast("unavailable"))
           }
@@ -659,9 +695,21 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
               >
                 <NoteIcon size={16} />
               </button>
+              {canCopy && (
+                <button
+                  className="cam-copy"
+                  disabled={!readyCount}
+                  onClick={copyTray}
+                  aria-label="Copy photo to clipboard"
+                  title="Copy, then paste into any AI"
+                >
+                  {copied === "tray" ? <CheckIcon size={16} /> : <CopyIcon size={16} />}
+                  {copied === "tray" ? "Copied" : "Copy"}
+                </button>
+              )}
               <button className="btn btn-primary cam-send" disabled={!readyCount} onClick={send}>
                 {keyCount ? "Ask AI" : "Ask Google"}
-                {shots.length > 1 ? ` · ${shots.length} photos` : ""}
+                {shots.length > 1 ? ` · ${shots.length}` : ""}
                 <SendIcon size={18} />
               </button>
             </div>
@@ -728,7 +776,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
             : mode === "shot"
               ? "Tap the shutter to save a screenshot you can share"
               : shots.length
-                ? "Add more photos of the same question, or tap Ask AI"
+                ? `Add more photos of the same question, or tap ${keyCount ? "Ask AI" : "Ask Google"}`
                 : "Tap the shutter to snap the question"}
         </p>
       </div>

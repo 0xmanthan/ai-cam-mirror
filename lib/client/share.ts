@@ -75,18 +75,19 @@ function preferShareSheet() {
   return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches && canShareFiles();
 }
 
-export type Handoff = "shared" | "cancelled" | "copied" | "copied-no-tab" | "unavailable";
+export type Handoff = "shared" | "cancelled" | "copied" | "copied-open-tab" | "copied-no-tab" | "unavailable";
 
 /**
- * Manual hand-off to Google, no automation: phones get the share sheet; desktops get the photo
- * on the clipboard plus a Google AI Mode tab (reused between asks) to paste it into.
+ * Manual hand-off to Google, no automation: phones get the share sheet; desktops get the photo on the
+ * clipboard, plus a Google AI Mode tab only when `openTab` is set. Google cuts the link back to its opener,
+ * so a page can't find or focus a Google tab that's already open; the caller opens one once per session.
  * Call straight from a tap/keypress: browsers only allow sharing, copying and new tabs right after one.
  */
-export async function handOffToGoogle(dataUrl: string, name: string): Promise<Handoff> {
+export async function handOffToGoogle(dataUrl: string, name: string, openTab: boolean): Promise<Handoff> {
   if (preferShareSheet()) return (await shareImage(dataUrl, name)) ? "shared" : "cancelled";
   if (!canCopyImage()) return "unavailable";
-  const copying = copyImage(dataUrl); // starts the clipboard write before the new tab takes focus
-  const tab = window.open(GOOGLE_AI_URL, "mirror-google");
+  const copying = copyImage(dataUrl); // starts the clipboard write before a new tab takes focus
+  const tab = openTab ? window.open(GOOGLE_AI_URL, "_blank") : null;
   await copying;
-  return tab ? "copied" : "copied-no-tab";
+  return !openTab ? "copied" : tab ? "copied-open-tab" : "copied-no-tab";
 }

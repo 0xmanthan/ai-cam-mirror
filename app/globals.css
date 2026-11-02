@@ -619,9 +619,12 @@ select.field {
 .cam-tray-actions .cam-mini {
   width: 46px;
   height: 46px;
+  flex: 0 0 auto;
 }
 .cam-send {
   flex: 1;
+  min-width: 0;
+  padding: 0 14px;
   height: 46px;
   border-radius: 999px;
   font-size: 16px;
@@ -711,12 +714,33 @@ select.field {
   color: rgba(255, 255, 255, 0.6);
   min-height: 16px;
 }
-.cam-toast {
+.toast.cam-toast {
+  text-align: center;
+  width: max-content;
   top: calc(max(12px, env(safe-area-inset-top)) + 96px);
   bottom: auto;
   background: #fff;
   color: var(--ink);
   animation: none;
+}
+
+.cam-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.cam-copy:disabled {
+  opacity: 0.5;
 }
 
 /* shutter modes: Ask AI / Screenshot */
