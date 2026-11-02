@@ -144,3 +144,8 @@ export const ImagesIcon = (p: P) => (
     <path d="m21 16-5-5-8 8" />
   </Svg>
 );
+export const GoogleIcon = (p: P) => (
+  <Svg {...p}>
+    <path d="M20.5 12.2h-8.2v3.3h4.7a5.3 5.3 0 1 1-1.5-5.7l2.4-2.4A8.6 8.6 0 1 0 20.8 12c0-.6 0-1.2-.3-1.8" />
+  </Svg>
+);

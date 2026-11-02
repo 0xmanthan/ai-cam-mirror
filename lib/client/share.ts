@@ -66,3 +66,27 @@ export async function copyImage(dataUrl: string) {
   // Safari wants the ClipboardItem created synchronously in the tap, with a promise for the data.
   await navigator.clipboard.write([new ClipboardItem({ "image/png": toPng(dataUrl) })]);
 }
+
+/** Google's AI Mode page (google.com/ai redirects here). */
+export const GOOGLE_AI_URL = "https://www.google.com/aimode";
+
+/** Phones: hand the image to the share sheet (pick the Google app, which opens it in Lens / AI Mode). */
+function preferShareSheet() {
+  return typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches && canShareFiles();
+}
+
+export type Handoff = "shared" | "cancelled" | "copied" | "copied-no-tab" | "unavailable";
+
+/**
+ * Manual hand-off to Google, no automation: phones get the share sheet; desktops get the photo
+ * on the clipboard plus a Google AI Mode tab (reused between asks) to paste it into.
+ * Call straight from a tap/keypress: browsers only allow sharing, copying and new tabs right after one.
+ */
+export async function handOffToGoogle(dataUrl: string, name: string): Promise<Handoff> {
+  if (preferShareSheet()) return (await shareImage(dataUrl, name)) ? "shared" : "cancelled";
+  if (!canCopyImage()) return "unavailable";
+  const copying = copyImage(dataUrl); // starts the clipboard write before the new tab takes focus
+  const tab = window.open(GOOGLE_AI_URL, "mirror-google");
+  await copying;
+  return tab ? "copied" : "copied-no-tab";
+}

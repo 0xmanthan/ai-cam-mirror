@@ -5,7 +5,16 @@ import { Track } from "livekit-client";
 import { useLiveRoom, type Feed } from "@/lib/client/useLiveRoom";
 import { getEffort, getInstruction, getKeys, setInstruction as saveInstruction, type JoinInfo } from "@/lib/client/storage";
 import { shrinkDataUrl, stitchDataUrls } from "@/lib/client/snapshot";
-import { canCopyImage, canShareFiles, copyImage, downloadImage, shareImage, shotFileName } from "@/lib/client/share";
+import {
+  canCopyImage,
+  canShareFiles,
+  copyImage,
+  downloadImage,
+  handOffToGoogle,
+  shareImage,
+  shotFileName,
+  type Handoff,
+} from "@/lib/client/share";
 import { MAX_SHOTS, type AskResponse } from "@/lib/types";
 import { VideoView } from "./VideoView";
 import { KeysModal } from "./KeysModal";
@@ -18,6 +27,7 @@ import {
   DownloadIcon,
   ExpandIcon,
   FlipIcon,
+  GoogleIcon,
   HistoryIcon,
   ImagesIcon,
   KeyIcon,
@@ -103,6 +113,8 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
   const [toast, setToast] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const sending = useRef(false);
+  /** Tray photos pre-stitched into one image, so the Google hand-off can run instantly inside the tap. */
+  const stitched = useRef<{ key: string; url: string } | null>(null);
   const canShareScreen = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
   useEffect(() => {
@@ -183,6 +195,46 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
     return () => clearTimeout(t);
   }, [toast]);
 
+  // Google takes one image per ask, so keep the tray stitched into one ahead of time.
+  useEffect(() => {
+    const ready = shots.filter((s) => s.status === "ready" && s.url);
+    if (ready.length < 2 || ready.length !== shots.length) return;
+    const key = ready.map((s) => s.id).join();
+    if (stitched.current?.key === key) return;
+    let stale = false;
+    stitchDataUrls(ready.map((s) => s.url!))
+      .then((url) => {
+        if (!stale) stitched.current = { key, url };
+      })
+      .catch(() => {});
+    return () => {
+      stale = true;
+    };
+  }, [shots]);
+
+  function handoffToast(r: Handoff) {
+    if (r === "copied") setToast(`Photo copied. In the Google tab, press ${/Mac|iP/.test(navigator.platform) ? "⌘V" : "Ctrl+V"}, then Enter.`);
+    else if (r === "copied-no-tab") setToast("Photo copied. Open google.com/aimode and paste it there.");
+    else if (r === "unavailable") setToast("Google isn't available in this browser. Use Screenshot, then Save.");
+  }
+
+  /** No AI key: send the photo(s) to Google instead. Stays synchronous up to the share/copy so the browser allows it. */
+  async function askGoogle(ready: Shot[]) {
+    const key = ready.map((s) => s.id).join();
+    const image =
+      ready.length === 1 ? ready[0].url! : stitched.current?.key === key ? stitched.current.url : await stitchDataUrls(ready.map((s) => s.url!));
+    try {
+      const r = await handOffToGoogle(image, shotFileName(join.room, Date.now()));
+      handoffToast(r);
+      if (r !== "cancelled" && r !== "unavailable") {
+        setShots([]);
+        setNoteOpen(false);
+      }
+    } catch {
+      handoffToast("unavailable");
+    }
+  }
+
   const isCreator = !!meta && meta.creator === me;
   const isHost = !!meta && meta.host === me;
   const hostName = people.find((p) => p.identity === meta?.host)?.name;
@@ -252,11 +304,7 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
       return;
     }
     const keys = getKeys().filter((k) => k.apiKey.trim() && k.enabled !== false);
-    if (!keys.length) {
-      setKeysOpen(true);
-      setToast("Add an API key first. It only takes a few seconds.");
-      return;
-    }
+    if (!keys.length) return askGoogle(ready);
     sending.current = true;
     const id = uid();
     const instruction = note.trim() || undefined;
@@ -408,6 +456,17 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
             {copied === viewed.id ? "Copied" : "Copy"}
           </button>
         )}
+        <button
+          className="ss-action"
+          onClick={() =>
+            handOffToGoogle(viewed.url, shotFileName(join.room, viewed.at))
+              .then(handoffToast)
+              .catch(() => handoffToast("unavailable"))
+          }
+        >
+          <GoogleIcon size={20} />
+          Google
+        </button>
         <button className="ss-action" onClick={() => askAboutShot(viewed)}>
           <SendIcon size={20} />
           Ask AI
@@ -493,7 +552,6 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
           </button>
           <button className="cam-icon" onClick={() => setKeysOpen(true)} aria-label="AI keys">
             <KeyIcon size={20} />
-            {!keyCount && <span className="cam-badge alert">!</span>}
           </button>
         </div>
       </header>
@@ -602,7 +660,8 @@ export function RoomView({ join, onEnded }: { join: JoinInfo; onEnded: (reason: 
                 <NoteIcon size={16} />
               </button>
               <button className="btn btn-primary cam-send" disabled={!readyCount} onClick={send}>
-                Ask AI{shots.length > 1 ? ` · ${shots.length} photos` : ""}
+                {keyCount ? "Ask AI" : "Ask Google"}
+                {shots.length > 1 ? ` · ${shots.length} photos` : ""}
                 <SendIcon size={18} />
               </button>
             </div>
